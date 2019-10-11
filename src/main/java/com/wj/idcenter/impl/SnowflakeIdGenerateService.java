@@ -2,6 +2,7 @@ package com.wj.idcenter.impl;
 
 import com.wj.exception.IdCenterException;
 import com.wj.idcenter.IdCenterGenerateTemplate;
+import com.wj.utils.NetUtil;
 import com.wj.zk.ZookeeperClient;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.env.Environment;
@@ -27,7 +28,7 @@ public class SnowflakeIdGenerateService implements IdCenterGenerateTemplate {
     private long workerId;
 
     /** 数据中心ID(0~31) */
-    private long dataCenterId;
+    private long dataCenterId = 1;
 
     /** 毫秒内序列(0~4095) */
     private long sequence = 0L;
@@ -38,7 +39,10 @@ public class SnowflakeIdGenerateService implements IdCenterGenerateTemplate {
     @Autowired
     private Environment env;
 
-    private static final String HOST = "idCenter.zookeeper.host";
+    private static final String HOST = "zookeeper.host";
+
+    @Autowired
+    private ZookeeperClient zookeeperClient;
 
     //==============================Constructors=====================================
     /**
@@ -47,9 +51,9 @@ public class SnowflakeIdGenerateService implements IdCenterGenerateTemplate {
     public SnowflakeIdGenerateService() {
     }
 
-    @PostConstruct
-    public void init() {
-        parseConfig();
+    //@PostConstruct
+    public void checkId() {
+        //parseConfig();
         /* 支持的最大机器id，结果是31 (这个移位算法可以很快的计算出几位二进制数所能表示的最大十进制数) */
         long maxWorkerId = ~(-1L << workerIdBits);
         if (workerId > maxWorkerId || workerId < 0) {
@@ -65,29 +69,9 @@ public class SnowflakeIdGenerateService implements IdCenterGenerateTemplate {
     }
 
     private void parseConfig() {
-        String host = env.getProperty(HOST);
-        if (host != null&&host.length() != 0) {
-            ZookeeperClient zookeeperClient = new ZookeeperClient(host);
-            zookeeperClient.init();
-            workerId = zookeeperClient.getWorkerId();
-            //dataCenterId = zookeeperClient.getdataCenterId();
-        }
-        else {
-            String sWorkerId = env.getProperty("idCenter.workerId");
-            String sDataCenterId = env.getProperty("idCenter.DataCenterId");
-            if (sWorkerId != null && sWorkerId.length() != 0) {
-                workerId = Integer.valueOf(sWorkerId);
-            }
-            else {
-                throw new IdCenterException("idCenter.workerId not config");
-            }
-            if (sDataCenterId != null && sDataCenterId.length() != 0) {
-                dataCenterId = Integer.valueOf(sDataCenterId);
-            }
-            else {
-                throw new IdCenterException("idCenter.dataCenterId not config");
-            }
-        }
+        String ipAddr = NetUtil.getLocalHostLANAddress();
+        workerId = zookeeperClient.getWorkerId(ipAddr);
+        //dataCenterId = zookeeperClient.getdataCenterId();
     }
 
     // ==============================Methods==========================================
@@ -139,6 +123,12 @@ public class SnowflakeIdGenerateService implements IdCenterGenerateTemplate {
                     | (workerId << sequenceBits)
                     | sequence;
         }
+    }
+
+    public long getId(String ipAddr) {
+        workerId = zookeeperClient.getWorkerId(ipAddr);
+        checkId();
+        return nextId();
     }
 
     /**
