@@ -1,6 +1,7 @@
 package com.wj.zk;
 
 import com.wj.service.RedisService;
+import com.wj.utils.MachineIdUtil;
 import com.wj.utils.NetUtil;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.WatchedEvent;
@@ -11,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import javax.annotation.PostConstruct;
+import javax.annotation.Resource;
 
 
 @Component
@@ -28,6 +30,9 @@ public class ZookeeperClient extends AbstractZookeeper implements Watcher {
 
     @Autowired
     private RedisService redisService;
+
+    @Resource
+    private MachineIdUtil machineIdUtil;
 
     @PostConstruct
     public void init() {
@@ -56,28 +61,42 @@ public class ZookeeperClient extends AbstractZookeeper implements Watcher {
     public int getWorkerId(String ipAddr) {
         String key = WORK_ID_KEY + ":" + ipAddr;
         String workIdPath = ROOT_PATH + "/" + "workId/" + ipAddr;
+
+        String lockKey = "workIdLock:";
+        int workId = 0;
         try {
             if (!exists(ROOT_PATH  + "/workId", null)) {
                 create(ROOT_PATH  + "/workId", "".getBytes(), CreateMode.PERSISTENT);
             }
             if (!exists(workIdPath, null)) {
-                long workId = redisService.incr(WORK_ID_KEY, 1);
-                if (workId > 31) {
-                    throw new RuntimeException("work id greater than 31");
+                boolean lock = redisService.setLock(lockKey, lockKey, 180);
+                if (lock) {
+                    workId = machineIdUtil.getWorkId();
+                    if (workId <= 0) {
+                        throw new RuntimeException("work id is zero error");
+                    }
+                    create(workIdPath, String.valueOf(workId).getBytes(), CreateMode.PERSISTENT);
+                    redisService.set(key, workId);
+                    return workId;
                 }
-                create(workIdPath, String.valueOf(workId).getBytes(), CreateMode.PERSISTENT);
-                redisService.set(key, workId);
+
             }
         }
         catch (Exception e) {
-            redisService.decr(WORK_ID_KEY, 1);
-            throw new RuntimeException(e);
+            if (workId > 0) {
+                machineIdUtil.clear(workId);
+            }
+            log.error("get work id error", e);
+        }
+        finally {
+            redisService.releaseLock(lockKey, lockKey);
         }
 
         try {
             return redisService.get(key);
         }
         catch (Exception e) {
+            log.warn("redis error", e);
             String s = getData(workIdPath);
             return Integer.valueOf(s);
         }
