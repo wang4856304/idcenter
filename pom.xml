@@ -9,7 +9,7 @@
     <version>1.0</version>
 
     <properties>
-        <fastJson-version>1.2.44</fastJson-version>
+        <fastJson-version>1.2.83</fastJson-version>
         <lombok-version>1.16.8</lombok-version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
